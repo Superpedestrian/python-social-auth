@@ -1,6 +1,7 @@
 """Django ORM models for Social Auth"""
 import base64
 import six
+from django.db import transaction
 
 from social.storage.base import UserMixin, AssociationMixin, NonceMixin, \
                                 CodeMixin, BaseStorage
@@ -57,7 +58,16 @@ class DjangoUserMixin(UserMixin):
         username_field = cls.username_field()
         if 'username' in kwargs and username_field not in kwargs:
             kwargs[username_field] = kwargs.pop('username')
-        return cls.user_model().objects.create_user(*args, **kwargs)
+        if hasattr(transaction, 'atomic'):
+            # In Django versions that have an "atomic" transaction decorator / context
+            # manager, there's a transaction wrapped around this call.
+            # If the create fails below due to an IntegrityError, ensure that the transaction
+            # stays undamaged by wrapping the create in an atomic.
+            with transaction.atomic():
+                user = cls.user_model().objects.create_user(*args, **kwargs)
+        else:
+            user = cls.user_model().objects.create_user(*args, **kwargs)
+        return user
 
     @classmethod
     def get_user(cls, pk=None, **kwargs):
