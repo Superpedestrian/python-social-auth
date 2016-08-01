@@ -1,7 +1,9 @@
 """Django ORM models for Social Auth"""
 import base64
 import six
+import sys
 from django.db import transaction
+from django.db.utils import IntegrityError
 
 from social.storage.base import UserMixin, AssociationMixin, NonceMixin, \
                                 CodeMixin, BaseStorage
@@ -58,15 +60,24 @@ class DjangoUserMixin(UserMixin):
         username_field = cls.username_field()
         if 'username' in kwargs and username_field not in kwargs:
             kwargs[username_field] = kwargs.pop('username')
-        if hasattr(transaction, 'atomic'):
-            # In Django versions that have an "atomic" transaction decorator / context
-            # manager, there's a transaction wrapped around this call.
-            # If the create fails below due to an IntegrityError, ensure that the transaction
-            # stays undamaged by wrapping the create in an atomic.
-            with transaction.atomic():
-                user = cls.user_model().objects.create_user(*args, **kwargs)
-        else:
+
+        try:
             user = cls.user_model().objects.create_user(*args, **kwargs)
+        except IntegrityError:
+            # User must have been created on a different thread.
+            # It will re-raise if that specific user has not been created.
+            # See:
+            # https://github.com/django/django/blob/6403e07c5093e0244497293f31f5f73cebe85b66/django/db/models/query.py#L468-L483
+            # for logic here.
+            exc_info = sys.exc_info()
+            # If email comes in as None it won't get found in the get
+            if kwargs.get('email', True) is None:
+                kwargs['email'] = ''
+            try:
+                user = cls.user_model().objects.get(*args, **kwargs)
+            except cls.user_model.DoesNotExist:
+                pass
+            six.reraise(*exc_info)
         return user
 
     @classmethod
