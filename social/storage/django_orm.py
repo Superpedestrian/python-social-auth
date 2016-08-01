@@ -75,9 +75,8 @@ class DjangoUserMixin(UserMixin):
                 kwargs['email'] = ''
             try:
                 user = cls.user_model().objects.get(*args, **kwargs)
-            except cls.user_model.DoesNotExist:
-                pass
-            six.reraise(*exc_info)
+            except cls.user_model().DoesNotExist:
+                six.reraise(*exc_info)
         return user
 
     @classmethod
